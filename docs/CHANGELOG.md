@@ -377,38 +377,253 @@ Se puede elegir cualquier checkpoint: `--model-path checkpoints/mario_ppo_500000
 
 ---
 
-## Config actual (post cambio 8)
+## Cambio 10 — Config basada en investigación (19-20 abril 2026)
+
+### Investigación realizada
+Análisis de implementaciones exitosas de PPO para Mario:
+- **RL Zoo** (SB3 oficial, tuneado con Optuna para Atari)
+- **vietnh1009/Super-mario-bros-PPO-pytorch** (31/32 niveles completados)
+- **"The 37 Implementation Details of PPO"** (ICLR blog track)
+- **OpenAI Baselines original** (PPO2 Atari)
+- **alirezakazemipour/Mario-PPO**, **yumouwei/super-mario-bros-RL** (SB3)
+
+### Hallazgo principal
+El **batch_size=64** con **n_steps=512** y **n_epochs=10** producía **192 gradient steps** por update. La config estándar investigada usa **16 gradient steps**. Esa diferencia de 12x era la causa principal del catastrophic forgetting — cada update sobreescribía agresivamente la política.
+
+### Cambios completos
+| Parámetro | Antes | Después | Fuente |
+|---|---|---|---|
+| `action_space` | complex (12) | **simple (7)** | vietnh1009 (31/32 niveles) |
+| `n_steps` | 512 | **128** | RL Zoo Atari, OpenAI Baselines |
+| `batch_size` | 64 | **256** | RL Zoo Atari |
+| `n_epochs` | 6 | **4** | RL Zoo, OpenAI, "37 Details" paper |
+| `clip_range` | 0.2 fijo | **0.1 con decay lineal** | "37 Details" paper |
+| `ent_coef` | 0.04 | **0.01** | Estándar Atari |
+| `n_envs` | 4 | **8** | Más datos diversos por update |
+| `total_timesteps` | 5M | **10M** | Margen para convergencia |
+| `checkpoint_freq` | 50k | **100k** | Menos I/O |
+| `death_by_enemy_penalty` | -10 | **-15** | Estándar en repos exitosos |
+| Reward components | 9 activos | **solo 3** | Simplificar señal |
+| `reset_memory` | false | **true** | Limpiar death_map/records de runs viejos |
+
+### Componentes de reward simplificados
+Desactivados: cyclic_detection, death_map, excessive_left, micro_movement, wall_stuck.
+Activos: forward, stuck, records (+ base: coins, score, flag, death, time).
+
+Razón: 17 componentes generaban señal ruidosa y conflictiva. Los repos exitosos usan 3-5 componentes.
+
+### Gradient steps por update: antes vs después
+```
+ANTES: (512 × 4 envs) / 64 batch × 6 epochs = 192 gradient steps
+AHORA: (128 × 8 envs) / 256 batch × 4 epochs = 16 gradient steps
+```
+
+### Implementación técnica
+- `configs/schema.py` — nuevo campo `action_space` en EnvConfig, `use_linear_clip_schedule` en PPOConfig
+- `models/ppo_factory.py` — decay lineal de clip_range via `get_linear_fn`
+- `env/factory.py` — soporte para SIMPLE_MOVEMENT/COMPLEX_MOVEMENT configurable
+
+### Verificación de checkpoints existentes
+| Archivo | Acciones | Timesteps | Compatible con config nueva |
+|---|---|---|---|
+| `checkpoints/mario_ppo_10000.zip` | 12 (COMPLEX) | 10k | No |
+| `checkpoints/mario_ppo_50000.zip` | 12 (COMPLEX) | 50k | No |
+| `checkpoints/mario_ppo_100000.zip` | 12 (COMPLEX) | 100k | No |
+| `checkpoints/mario_ppo_150000.zip` | 12 (COMPLEX) | 150k | No |
+| `checkpoints/mario_ppo_200000.zip` | 12 (COMPLEX) | 200k | No |
+| `checkpoints/mario_ppo_400000.zip` | 12 (COMPLEX) | 400k | No |
+| `models_saved/mario_ppo.zip` | 7 (SIMPLE) | 736 | Sí pero inútil (apenas arrancó) |
+
+Los checkpoints viejos (COMPLEX_MOVEMENT) no son compatibles con la config nueva (SIMPLE_MOVEMENT) — diferente tamaño de red neuronal. Sirven para demo con `action_space: complex`.
+
+---
+
+## Run 4 — Config investigada con ent_coef=0.01 (20 abril 2026)
+
+### Resultado
+A 176k steps: distancia avg100=271, max hist=1,193. Picos de distancia avg100 llegaban a ~500-600 pero no subían más. `ent_coef=0.01` no daba suficiente exploración para salir de la zona 0-400.
+
+### Decisión
+Subir `ent_coef` a 0.02 (punto medio entre 0.01 que no exploraba y 0.04 que oscilaba mucho).
+
+---
+
+## Run 5 — ent_coef=0.02 (20 abril 2026)
+
+### Observaciones del CSV (logs/run_20260420_005543.csv)
+
+**Primeros 50 episodios**: buenos, variedad de resultados, max_x desde 160 hasta 936. Distancia avg100 llegó a 430.
+
+**Episodio ~50 en adelante**: colapso a política degenerada. El 90% de los episodios terminan con max_x=198 exacto, reward=385.5 exacto. El agente llega a x=198, se atascacontra un obstáculo, y el `no_progress_limit=120` lo mata.
+
+**Patrón cíclico observado**:
+- dist avg100 baja a 198 (todos los episodios iguales)
+- Ocasionalmente un episodio alcanza 600-900 (por entropy)
+- dist avg100 sube brevemente a 300-340
+- Vuelve a colapsar a 198
+
+A 51k steps: dist avg100=198, max hist=950. **Misma trampa de siempre.**
+
+### Diagnóstico
+El obstáculo en x~198 (probablemente primer goomba o pipe del nivel 1-2) crea un mínimo local fuerte. El agente recibe reward=385.5 por llegar ahí y morir — suficiente para que PPO refuerce esa política.
+
+Problema adicional: `n_steps=128` era más corto que un episodio completo (~145 steps con truncamiento). El rollout no contenía episodios completos, lo que dificultaba el aprendizaje de las consecuencias de atascarse.
+
+---
+
+## Cambio 11 — Subir n_steps a 256
+
+### Cambios
+| Parámetro | Antes | Después | Razón |
+|---|---|---|---|
+| `ent_coef` | 0.01 | **0.02** | Más exploración para escapar mínimo local en x=198 |
+| `n_steps` | 128 | **256** | Rollouts contengan episodios completos (~145 steps) |
+
+### Gradient steps por update
+`(256 × 8 envs) / 256 batch × 4 epochs = 32 gradient steps` (vs 16 antes, vs 192 originalmente).
+
+### Bug fix: checkpoint timing
+El callback de checkpoints usaba `self.n_calls` (una vez por step del VecEnv) en vez de `self.num_timesteps` (total timesteps). Con 8 envs, el checkpoint de "100k" se generaba a 800k timesteps reales. Corregido para usar `self.num_timesteps`.
+
+### Limpieza
+Checkpoints viejos COMPLEX_MOVEMENT eliminados (incompatibles con SIMPLE_MOVEMENT).
+
+---
+
+## Run 5 — ent_coef=0.02 + config investigada (20 abril 2026)
+
+### Análisis del CSV (logs/run_20260420_005543.csv)
+- 3532 episodios, 96k steps
+- **82% de episodios terminaron en x=198 exacto** — política degenerada
+- Patrón: colapsa a x=198, ocasionalmente escapa a 600-900 por entropy, vuelve a colapsar
+- Distancia promedio global: 228
+- Max x histórico: 972
+
+### Diagnóstico
+Hay un obstáculo específico en x~198 (posiblemente primer goomba o pipe del nivel 1-2). El agente aprende que llegar a x=198 da ~385 reward "seguro" y deja de explorar más allá. Con ent_coef=0.02 no tiene suficiente exploración para superar el obstáculo consistentemente.
+
+---
+
+## Cambio 12 — Reward escalado por distancia
+
+### Problema
+Llegar a x=198 (reward ~385) vs x=400 (reward ~785) — la diferencia no es suficiente para que PPO priorice las trayectorias largas sobre las cortas "seguras".
+
+### Solución: forward_distance_scale
+Nuevo parámetro que multiplica el forward_reward por `(1 + progress_ratio * scale)`. Cada pixel vale más cuanto más lejos está Mario:
+
+```
+x=198:  reward ~420   (scale 1.06x)
+x=500:  reward ~1,150 (scale 1.15x) → 2.7x más que 198
+x=1000: reward ~2,600 (scale 1.30x) → 6x más que 198
+```
+
+También:
+- `record_distance_bonus`: 5 → **30** (fuerte incentivo por romper récords)
+- Bonus territorio nuevo: 0.25 → **0.5**
+
+### Archivos modificados
+- `configs/schema.py` — nuevo campo `forward_distance_scale` en RewardConfig
+- `env/reward_shaping.py` — forward reward multiplicado por distance_scale
+
+---
+
+## Run 6 — ent_coef=0.02 + distance scaling (20 abril 2026)
+
+### Resultado
+Colapsó incluso más rápido que el run 5. En 400 episodios:
+- ep 1-200: dist_avg=131
+- ep 201-400: dist_avg=**41** (peor que todos los runs anteriores)
+- 90% de episodios con x < 200
+
+### Análisis
+La config "investigada" (batch=256, n_steps=128/256, clip=0.1, ent=0.01/0.02) no funciona para este environment específico. Producía consistentemente colapso temprano en todos los intentos (runs 4, 5, 6).
+
+---
+
+## Cambio 13 — Volver a lo que funcionó (20 abril 2026)
+
+### Reflexión
+Nuestro **mejor run fue el Run 3**: ent_coef=0.04, n_steps=512, batch=64, clip=0.2, COMPLEX_MOVEMENT, 4 envs. Llegó a dist_avg=638, reward=1278 a 206k steps. Las oscilaciones eran fuertes pero el agente progresaba.
+
+Los cambios "investigados" (batch=256, clip=0.1, ent=0.01) causaban colapso temprano porque:
+1. **batch=256 + n_epochs=4 = solo 32 gradient steps** → no aprendía lo suficiente de cada rollout
+2. **clip=0.1** → demasiado restrictivo, no dejaba que la política cambiara lo suficiente
+3. **ent=0.01** → insuficiente exploración para este nivel
+
+### Config de compromiso: lo mejor del Run 3 + mejoras confirmadas
+
+| Parámetro | Run 3 (mejor) | Config investigada | **Compromiso** |
+|---|---|---|---|
+| n_steps | 512 | 128 | **512** (rollouts completos) |
+| batch_size | 64 | 256 | **64** (128 grad steps, suficiente aprendizaje) |
+| n_epochs | 10 | 4 | **4** (menos catastrophic forgetting) |
+| clip_range | 0.2 | 0.1 | **0.2** (más libertad de cambio) |
+| ent_coef | 0.04 | 0.01 | **0.04** (el que mejor exploró) |
+| action_space | complex | simple | **simple** (menos acciones) |
+| n_envs | 4 | 8 | **8** (más velocidad) |
+| distance_scale | no existía | 1.0 | **1.0** (incentiva ir lejos) |
+| record_bonus | 5 | 5 | **30** (incentiva romper récords) |
+| death_penalty | -10 | -15 | **-10** (menos miedo a morir) |
+
+**128 gradient steps por update** (vs 32 de la investigada, vs 192 del original con n_epochs=10).
+
+### Decisión
+Dejar correr **mínimo 1 hora** sin tocar. Los runs cortos (50-200k steps) no son suficientes para juzgar — el agente necesita tiempo para superar las oscilaciones iniciales.
+
+---
+
+## Config actual (post cambio 13)
 
 ```yaml
+env:
+  action_space: simple
+
 ppo:
+  n_steps: 512
+  batch_size: 64
+  n_epochs: 4
+  clip_range: 0.2
   ent_coef: 0.04
-  n_epochs: 4              # bajado de 10
+  use_linear_clip_schedule: false
 
 reward:
   forward_reward_coef: 2.0
-  flag_bonus: 30.0
+  forward_distance_scale: 1.0
   death_by_enemy_penalty: -10.0
   death_by_time_penalty: -5.0
-  stuck_penalty_base: -0.2
-  wall_stuck_penalty: -0.1
-  micro_movement_penalty: -0.3
-  excessive_left_penalty: -0.05
-  enable_cyclic_detection: false   # desactivado
-  enable_death_map: false
-  no_progress_limit: 120           # bajado de 200
+  flag_bonus: 30.0
+  record_distance_bonus: 30.0
+  no_progress_limit: 120
+  # Desactivados: cyclic, death_map, excessive_left, micro, wall
 
 training:
-  n_envs: 4
-  total_timesteps: 5000000
+  n_envs: 8
+  total_timesteps: 10000000
 ```
+
+**128 gradient steps por update.**
+
+---
+
+## Resumen de todos los runs
+
+| Run | Config clave | Mejor dist avg100 | Max x hist | Problema |
+|---|---|---|---|---|
+| 1 | ent=0.02, epochs=10, 1 env | 207 | 1,339 | Lento (65 sps), rewards -7000 |
+| 2 | ent=0.02, epochs=10, 4 envs | 392 | 1,542 | Oscilaciones, estancado a 400k |
+| **3** | **ent=0.04, epochs=10, 4 envs** | **638** | **1,934** | Oscilaciones pero progresaba |
+| 4 | ent=0.01, epochs=4, 8 envs, SIMPLE | 271 | 1,193 | Picos no subían |
+| 5 | ent=0.02, epochs=4, batch=256 | 332 | 950 | 82% episodios en x=198 |
+| 6 | ent=0.02 + distance scale | 131 | 856 | Colapso rápido a x=41 |
+| 7 | **compromiso (actual)** | ? | ? | En curso... |
 
 ---
 
 ## Próximos pasos pendientes
 
-Ver `docs/GUIA_AJUSTES.md` para qué hacer en cada checkpoint:
-- **500k steps**: distancia avg100 > 500, gráficos subiendo → no tocar
-- **1M steps**: distancia avg100 > 800, max hist > 2500 → no tocar
-- **2M steps**: primer clear (clear rate > 0%) → subir flag_bonus si se acerca pero no completa
-- **3-4M steps**: clear rate > 50% → optimizar para puntaje (coins, time bonus)
-- **5M steps**: evaluar modelo final con 20 episodios
+- **Dejar correr 1 hora mínimo sin tocar**
+- **500k steps**: dist avg100 > 500, max hist subiendo
+- **1M steps**: dist avg100 > 800
+- **2M steps**: primer clear
+- **10M steps**: resultado final

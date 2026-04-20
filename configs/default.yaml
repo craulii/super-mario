@@ -3,6 +3,7 @@ env:
   frame_stack: 4
   resize_shape: 84
   skip_frames: 4
+  action_space: simple
 
 ppo:
   policy: CnnPolicy
@@ -17,9 +18,11 @@ ppo:
   vf_coef: 0.5
   max_grad_norm: 0.5
   use_linear_lr_schedule: true
+  use_linear_clip_schedule: false
 
 reward:
   forward_reward_coef: 2.0
+  forward_distance_scale: 1.0
   backward_reward_coef: 0.5
   coin_reward: 5.0
   score_reward_coef: 0.025
@@ -45,34 +48,34 @@ reward:
   death_bucket_coef: -0.5
   death_bucket_cap: -10.0
 
-  enable_excessive_left: true
+  enable_excessive_left: false
   excessive_left_threshold_frames: 30
   excessive_left_pixels: 40
   excessive_left_penalty: -0.05
 
-  enable_micro_movement: true
+  enable_micro_movement: false
   micro_movement_window: 60
   micro_movement_span_threshold: 20
   micro_movement_net_threshold: 10
   micro_movement_penalty: -0.3
 
-  enable_wall_stuck: true
+  enable_wall_stuck: false
   wall_stuck_frames: 15
   wall_stuck_penalty: -0.1
 
   enable_records: true
-  record_distance_bonus: 5.0
+  record_distance_bonus: 30.0
   record_time_bonus: 10.0
 
   no_progress_limit: 120
 
 training:
-  total_timesteps: 5000000
-  checkpoint_freq: 50000
+  total_timesteps: 10000000
+  checkpoint_freq: 100000
   early_stop_consecutive: 5
   seed: 42
-  reset_memory: false
-  n_envs: 4
+  reset_memory: true
+  n_envs: 8
 
 paths:
   log_dir: logs

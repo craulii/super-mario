@@ -15,6 +15,10 @@ def make_model(cfg: Config, env: gym.Env) -> PPO:
     if cfg.ppo.use_linear_lr_schedule:
         lr = get_linear_fn(cfg.ppo.learning_rate, cfg.ppo.learning_rate * 0.1, 1.0)
 
+    clip: float | object = cfg.ppo.clip_range
+    if cfg.ppo.use_linear_clip_schedule:
+        clip = get_linear_fn(cfg.ppo.clip_range, cfg.ppo.clip_range * 0.1, 1.0)
+
     return PPO(
         policy=cfg.ppo.policy,
         env=env,
@@ -24,7 +28,7 @@ def make_model(cfg: Config, env: gym.Env) -> PPO:
         n_epochs=cfg.ppo.n_epochs,
         gamma=cfg.ppo.gamma,
         gae_lambda=cfg.ppo.gae_lambda,
-        clip_range=cfg.ppo.clip_range,
+        clip_range=clip,
         ent_coef=cfg.ppo.ent_coef,
         vf_coef=cfg.ppo.vf_coef,
         max_grad_norm=cfg.ppo.max_grad_norm,

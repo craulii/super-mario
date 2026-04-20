@@ -8,7 +8,7 @@ import gym
 import numpy as np
 from gym.wrappers import FrameStack, GrayScaleObservation, ResizeObservation
 import gym_super_mario_bros
-from gym_super_mario_bros.actions import COMPLEX_MOVEMENT
+from gym_super_mario_bros.actions import COMPLEX_MOVEMENT, SIMPLE_MOVEMENT
 from nes_py.wrappers import JoypadSpace
 
 from configs.schema import Config
@@ -81,7 +81,8 @@ def make_env(
         apply_api_compatibility=True,
     )
 
-    env: gym.Env = JoypadSpace(base, COMPLEX_MOVEMENT)
+    actions = SIMPLE_MOVEMENT if cfg.env.action_space == "simple" else COMPLEX_MOVEMENT
+    env: gym.Env = JoypadSpace(base, actions)
     reward_wrapper = AdvancedRewardWrapper(
         env,
         reward_cfg=cfg.reward,

@@ -18,11 +18,11 @@ from env.action_history import ActionPatternDetector
 from env.death_map import DeathLocationTracker
 from env.level_metrics import X_MAX_LEVEL_1_2, progress_ratio, zone_of
 
-# Acciones de COMPLEX_MOVEMENT que presionan RIGHT (ver gym_super_mario_bros.actions).
-# COMPLEX_MOVEMENT = [
-#  0: NOOP            1: right           2: right+A         3: right+B
-#  4: right+A+B       5: A               6: left            7: left+A
-#  8: left+B          9: left+A+B       10: down           11: up ]
+# Acciones que presionan RIGHT/LEFT (ver gym_super_mario_bros.actions).
+# SIMPLE_MOVEMENT = [0: NOOP, 1: right, 2: right+A, 3: right+B, 4: right+A+B, 5: A, 6: left]
+# COMPLEX_MOVEMENT = [0: NOOP, 1: right, 2: right+A, 3: right+B, 4: right+A+B, 5: A,
+#                     6: left, 7: left+A, 8: left+B, 9: left+A+B, 10: down, 11: up]
+# Ambos comparten indices 1-4 para RIGHT y 6 para LEFT.
 RIGHT_ACTIONS: frozenset[int] = frozenset({1, 2, 3, 4})
 LEFT_ACTIONS: frozenset[int] = frozenset({6, 7, 8, 9})
 
@@ -185,10 +185,12 @@ class AdvancedRewardWrapper(gym.Wrapper):
         # 1) Progreso horizontal (stuck adaptativo)
         delta_x = x - self._prev_x
         if delta_x > 0:
-            shaped += delta_x * cfg.forward_reward_coef
+            # Reward escalado por distancia: más lejos = más valioso cada pixel
+            distance_scale = 1.0 + progress_ratio(x) * cfg.forward_distance_scale
+            shaped += delta_x * cfg.forward_reward_coef * distance_scale
             # bonus extra si avanza en territorio nunca antes explorado
             if cfg.enable_records and x > self._max_x_historical_at_ep_start:
-                shaped += delta_x * cfg.forward_reward_coef * 0.25
+                shaped += delta_x * cfg.forward_reward_coef * 0.5
             self._stuck_counter = 0
         elif delta_x == 0:
             self._stuck_counter += 1

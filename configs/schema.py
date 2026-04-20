@@ -16,22 +16,24 @@ class EnvConfig:
     frame_stack: int = 4
     resize_shape: int = 84
     skip_frames: int = 4
+    action_space: str = "simple"
 
 
 @dataclass
 class PPOConfig:
     policy: str = "CnnPolicy"
     learning_rate: float = 2.5e-4
-    n_steps: int = 512
-    batch_size: int = 64
-    n_epochs: int = 10
+    n_steps: int = 128
+    batch_size: int = 256
+    n_epochs: int = 4
     gamma: float = 0.99
     gae_lambda: float = 0.95
-    clip_range: float = 0.2
-    ent_coef: float = 0.02
+    clip_range: float = 0.1
+    ent_coef: float = 0.01
     vf_coef: float = 0.5
     max_grad_norm: float = 0.5
     use_linear_lr_schedule: bool = True
+    use_linear_clip_schedule: bool = True
 
 
 @dataclass
@@ -39,6 +41,7 @@ class RewardConfig:
     """Coeficientes de reward shaping. Editable en caliente desde el dashboard."""
 
     forward_reward_coef: float = 1.0
+    forward_distance_scale: float = 1.0
     backward_reward_coef: float = 0.5
     coin_reward: float = 5.0
     score_reward_coef: float = 0.025

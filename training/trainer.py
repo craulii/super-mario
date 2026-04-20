@@ -47,6 +47,7 @@ class Trainer:
         self._model: Any | None = None
         self._env: Any | None = None
         self._death_map: DeathLocationTracker | None = None
+        self._run_id: str = ""
 
     # ------------------------------------------------------------------
     # Ciclo de vida del training
@@ -58,6 +59,10 @@ class Trainer:
         self._state.reset_for_new_run()
         self._cfg.ensure_dirs()
         set_global_seed(self._cfg.training.seed)
+        self._run_id = time.strftime("%Y%m%d_%H%M%S")
+        # Crear subcarpeta de checkpoints para este run
+        self._run_checkpoint_dir = self._cfg.paths.checkpoint_dir / f"run_{self._run_id}"
+        self._run_checkpoint_dir.mkdir(parents=True, exist_ok=True)
         with self._state.lock:
             self._state.mode = "training"
             self._state.message = "arrancando"
@@ -372,7 +377,12 @@ class Trainer:
                 [
                     PauseStopCallback(self._state),
                     MetricsStreamCallback(self._state, n_envs=n_envs),
-                    MarioTrainingCallback(self._cfg, self._state, verbose=0),
+                    MarioTrainingCallback(
+                        self._cfg, self._state,
+                        checkpoint_dir=self._run_checkpoint_dir,
+                        run_id=self._run_id,
+                        verbose=0,
+                    ),
                     RecordVideoCallback(self._cfg.paths.video_dir / "records"),
                 ]
             )
@@ -393,11 +403,18 @@ class Trainer:
             # Recoger death maps de subprocesos y fusionar
             self._merge_subprocess_death_maps()
 
-            # Guardar al finalizar
+            # Guardar al finalizar (en carpeta global + en carpeta del run)
             save_model(
                 self._model,
                 self._cfg.paths.model_save_path,
-                metadata={"final": True, "timesteps": int(self._model.num_timesteps)},
+                metadata={"final": True, "timesteps": int(self._model.num_timesteps),
+                           "run_id": self._run_id},
+            )
+            save_model(
+                self._model,
+                self._run_checkpoint_dir / "final",
+                metadata={"final": True, "timesteps": int(self._model.num_timesteps),
+                           "run_id": self._run_id},
             )
             if self._death_map is not None:
                 self._death_map.save()

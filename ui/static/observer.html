@@ -43,7 +43,7 @@ h1{text-align:center;color:#58a6ff;font-size:1.3rem;padding:8px 0;letter-spacing
 /* Charts */
 .chart-card{grid-column:2/4;grid-row:2}
 .charts-row{display:grid;grid-template-columns:1fr 1fr 1fr;gap:10px}
-.chart-box{position:relative;height:160px}
+.chart-box{position:relative;height:200px}
 .chart-box canvas{width:100%;height:100%;border-radius:4px;background:#0d1117}
 .chart-title{position:absolute;top:4px;left:8px;font-size:.7rem;color:#8b949e;z-index:1}
 .chart-value{position:absolute;top:4px;right:8px;font-size:.7rem;color:#58a6ff;font-weight:600;z-index:1}
@@ -176,6 +176,19 @@ function pushChartData(d) {
   drawChart('chartMaxX', series.maxX, '#f0883e', '#3d2a15');
 }
 
+function smoothData(data, window) {
+  if (data.length < window) window = data.length;
+  const out = [];
+  let sum = 0;
+  for (let i = 0; i < data.length; i++) {
+    sum += data[i];
+    if (i >= window) sum -= data[i - window];
+    const n = Math.min(i + 1, window);
+    out.push(sum / n);
+  }
+  return out;
+}
+
 function drawChart(canvasId, data, lineColor, fillColor) {
   const canvas = document.getElementById(canvasId);
   const rect = canvas.parentElement.getBoundingClientRect();
@@ -183,7 +196,7 @@ function drawChart(canvasId, data, lineColor, fillColor) {
   canvas.height = rect.height;
   const ctx = canvas.getContext('2d');
   const W = canvas.width, H = canvas.height;
-  const pad = {top: 22, bottom: 20, left: 2, right: 2};
+  const pad = {top: 22, bottom: 22, left: 40, right: 8};
   const cW = W - pad.left - pad.right;
   const cH = H - pad.top - pad.bottom;
 
@@ -192,69 +205,113 @@ function drawChart(canvasId, data, lineColor, fillColor) {
 
   if (data.length < 2) return;
 
+  // Compute smoothed line
+  const smoothWindow = Math.max(5, Math.floor(data.length / 8));
+  const smooth = smoothData(data, smoothWindow);
+
+  // Use both raw and smooth for range
   let minV = Math.min(...data);
   let maxV = Math.max(...data);
-  if (maxV === minV) { maxV += 1; minV -= 1; }
+  // Add 5% padding
+  const margin = (maxV - minV) * 0.05 || 1;
+  minV -= margin;
+  maxV += margin;
   const range = maxV - minV;
 
-  // Grid lines
-  ctx.strokeStyle = '#21262d';
-  ctx.lineWidth = 1;
-  for (let i = 0; i <= 3; i++) {
-    const gy = pad.top + (i / 3) * cH;
-    ctx.beginPath(); ctx.moveTo(pad.left, gy); ctx.lineTo(W - pad.right, gy); ctx.stroke();
-  }
+  const xStep = cW / (data.length - 1);
+  const toX = (i) => pad.left + i * xStep;
+  const toY = (v) => pad.top + cH - ((v - minV) / range) * cH;
 
-  // Axis labels
-  ctx.fillStyle = '#30363d';
+  // Grid lines + labels
+  ctx.strokeStyle = '#1c2128';
+  ctx.lineWidth = 1;
+  ctx.fillStyle = '#484f58';
   ctx.font = '9px monospace';
-  ctx.textAlign = 'left';
-  ctx.fillText(formatAxis(maxV), pad.left + 2, pad.top + 10);
-  ctx.fillText(formatAxis(minV), pad.left + 2, H - pad.bottom - 2);
+  ctx.textAlign = 'right';
+  for (let i = 0; i <= 4; i++) {
+    const gy = pad.top + (i / 4) * cH;
+    ctx.beginPath(); ctx.moveTo(pad.left, gy); ctx.lineTo(W - pad.right, gy); ctx.stroke();
+    const val = maxV - (i / 4) * range;
+    ctx.fillText(formatAxis(val), pad.left - 4, gy + 3);
+  }
 
   // Timestep labels
   if (series.timestamps.length > 1) {
-    const startIdx = series.reward.length - data.length;
-    const tsStart = series.timestamps[Math.max(0, startIdx)] || 0;
+    const tsStart = series.timestamps[Math.max(0, series.timestamps.length - data.length)] || 0;
     const tsEnd = series.timestamps[series.timestamps.length - 1] || 0;
+    ctx.fillStyle = '#484f58';
     ctx.textAlign = 'left';
-    ctx.fillText(formatK(tsStart), pad.left + 2, H - 4);
+    ctx.fillText(formatK(tsStart), pad.left, H - 4);
     ctx.textAlign = 'right';
-    ctx.fillText(formatK(tsEnd), W - pad.right - 2, H - 4);
+    ctx.fillText(formatK(tsEnd), W - pad.right, H - 4);
+    ctx.textAlign = 'center';
+    const tsMid = (tsStart + tsEnd) / 2;
+    ctx.fillText(formatK(tsMid), pad.left + cW / 2, H - 4);
   }
 
-  const xStep = cW / (data.length - 1);
-  const toY = (v) => pad.top + cH - ((v - minV) / range) * cH;
-
-  // Fill area
+  // Raw data - thin, semi-transparent
   ctx.beginPath();
-  ctx.moveTo(pad.left, toY(data[0]));
-  for (let i = 1; i < data.length; i++) {
-    ctx.lineTo(pad.left + i * xStep, toY(data[i]));
-  }
-  ctx.lineTo(pad.left + (data.length - 1) * xStep, pad.top + cH);
-  ctx.lineTo(pad.left, pad.top + cH);
-  ctx.closePath();
-  ctx.fillStyle = fillColor + '80';
-  ctx.fill();
-
-  // Line
-  ctx.beginPath();
-  ctx.moveTo(pad.left, toY(data[0]));
-  for (let i = 1; i < data.length; i++) {
-    ctx.lineTo(pad.left + i * xStep, toY(data[i]));
-  }
-  ctx.strokeStyle = lineColor;
-  ctx.lineWidth = 1.5;
+  ctx.moveTo(toX(0), toY(data[0]));
+  for (let i = 1; i < data.length; i++) ctx.lineTo(toX(i), toY(data[i]));
+  ctx.strokeStyle = lineColor + '30';
+  ctx.lineWidth = 1;
   ctx.stroke();
 
-  // Current dot
-  const lastX = pad.left + (data.length - 1) * xStep;
-  const lastY = toY(data[data.length - 1]);
+  // Fill under smooth line
+  ctx.beginPath();
+  ctx.moveTo(toX(0), toY(smooth[0]));
+  for (let i = 1; i < smooth.length; i++) ctx.lineTo(toX(i), toY(smooth[i]));
+  ctx.lineTo(toX(smooth.length - 1), pad.top + cH);
+  ctx.lineTo(toX(0), pad.top + cH);
+  ctx.closePath();
+  ctx.fillStyle = fillColor + '40';
+  ctx.fill();
+
+  // Smooth line - thick, bright
+  ctx.beginPath();
+  ctx.moveTo(toX(0), toY(smooth[0]));
+  for (let i = 1; i < smooth.length; i++) ctx.lineTo(toX(i), toY(smooth[i]));
+  ctx.strokeStyle = lineColor;
+  ctx.lineWidth = 2.5;
+  ctx.stroke();
+
+  // Min/max envelope (subtle)
+  if (data.length > 20) {
+    const envWindow = Math.max(10, Math.floor(data.length / 6));
+    ctx.strokeStyle = lineColor + '15';
+    ctx.lineWidth = 1;
+    // Max envelope
+    ctx.beginPath();
+    for (let i = 0; i < data.length; i++) {
+      let mx = -Infinity;
+      for (let j = Math.max(0, i - envWindow); j <= Math.min(data.length - 1, i + envWindow); j++) {
+        if (data[j] > mx) mx = data[j];
+      }
+      if (i === 0) ctx.moveTo(toX(i), toY(mx)); else ctx.lineTo(toX(i), toY(mx));
+    }
+    ctx.stroke();
+    // Min envelope
+    ctx.beginPath();
+    for (let i = 0; i < data.length; i++) {
+      let mn = Infinity;
+      for (let j = Math.max(0, i - envWindow); j <= Math.min(data.length - 1, i + envWindow); j++) {
+        if (data[j] < mn) mn = data[j];
+      }
+      if (i === 0) ctx.moveTo(toX(i), toY(mn)); else ctx.lineTo(toX(i), toY(mn));
+    }
+    ctx.stroke();
+  }
+
+  // Current value dot + glow
+  const lastPx = toX(data.length - 1);
+  const lastPy = toY(smooth[smooth.length - 1]);
+  ctx.shadowColor = lineColor;
+  ctx.shadowBlur = 8;
   ctx.fillStyle = lineColor;
   ctx.beginPath();
-  ctx.arc(lastX, lastY, 3, 0, Math.PI * 2);
+  ctx.arc(lastPx, lastPy, 4, 0, Math.PI * 2);
   ctx.fill();
+  ctx.shadowBlur = 0;
 }
 
 function formatAxis(v) {
