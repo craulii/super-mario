@@ -14,14 +14,14 @@ h1{text-align:center;color:#58a6ff;font-size:1.3rem;padding:8px 0;letter-spacing
 .status-idle{background:#388bfd;color:#fff}
 .status-stopping{background:#da3633;color:#fff}
 
-.grid{display:grid;grid-template-columns:320px 1fr;grid-template-rows:auto auto 1fr;gap:10px;margin-top:8px;height:calc(100vh - 60px)}
+.grid{display:grid;grid-template-columns:300px 1fr 1fr;grid-template-rows:auto auto auto;gap:10px;margin-top:8px}
 
 .card{background:#161b22;border:1px solid #30363d;border-radius:8px;padding:12px;overflow:hidden}
 .card h3{color:#8b949e;font-size:.75rem;text-transform:uppercase;letter-spacing:1px;margin-bottom:8px;border-bottom:1px solid #21262d;padding-bottom:4px}
 
 /* Game viewer */
-.game-card{grid-column:1;grid-row:1/3}
-#frame{width:100%;image-rendering:pixelated;border-radius:4px;background:#000;min-height:240px;display:block}
+.game-card{grid-column:1;grid-row:1/4}
+#frame{width:100%;image-rendering:pixelated;border-radius:4px;background:#000;min-height:200px;display:block}
 
 /* Progress bars */
 .progress-section{margin-top:10px}
@@ -33,21 +33,27 @@ h1{text-align:center;color:#58a6ff;font-size:1.3rem;padding:8px 0;letter-spacing
 .bar-train{background:linear-gradient(90deg,#1f6feb,#58a6ff)}
 
 /* Metrics */
-.metrics-card{grid-column:2;grid-row:1}
-.metrics-grid{display:grid;grid-template-columns:1fr 1fr;gap:6px 20px}
+.metrics-card{grid-column:2/4;grid-row:1}
+.metrics-grid{display:grid;grid-template-columns:1fr 1fr 1fr;gap:6px 20px}
 .metric{display:flex;justify-content:space-between;padding:4px 0;border-bottom:1px solid #21262d;font-size:.85rem}
 .metric-key{color:#8b949e}
 .metric-val{color:#e6edf3;font-weight:600;font-variant-numeric:tabular-nums}
-.metric-val.positive{color:#3fb950}
 .metric-val.negative{color:#f85149}
-.metric-val.highlight{color:#58a6ff}
+
+/* Charts */
+.chart-card{grid-column:2/4;grid-row:2}
+.charts-row{display:grid;grid-template-columns:1fr 1fr 1fr;gap:10px}
+.chart-box{position:relative;height:160px}
+.chart-box canvas{width:100%;height:100%;border-radius:4px;background:#0d1117}
+.chart-title{position:absolute;top:4px;left:8px;font-size:.7rem;color:#8b949e;z-index:1}
+.chart-value{position:absolute;top:4px;right:8px;font-size:.7rem;color:#58a6ff;font-weight:600;z-index:1}
 
 /* Trajectory */
-.traj-card{grid-column:2;grid-row:2/4}
-#trajCanvas{width:100%;height:100%;min-height:200px;border-radius:4px;background:#0d1117}
+.traj-card{grid-column:2/4;grid-row:3}
+#trajCanvas{width:100%;height:200px;border-radius:4px;background:#0d1117}
 
 /* Config */
-.config-card{grid-column:1;grid-row:3}
+.config-card{grid-column:1;grid-row:4}
 .config-item{font-size:.8rem;padding:2px 0;color:#8b949e}
 .config-item b{color:#c9d1d9}
 
@@ -56,12 +62,20 @@ h1{text-align:center;color:#58a6ff;font-size:1.3rem;padding:8px 0;letter-spacing
 .conn.ok{background:#238636;color:#fff}
 .conn.off{background:#da3633;color:#fff}
 
-@media(max-width:700px){
-  .grid{grid-template-columns:1fr;grid-template-rows:auto auto auto auto}
-  .game-card{grid-column:1;grid-row:1}
-  .metrics-card{grid-column:1;grid-row:2}
-  .traj-card{grid-column:1;grid-row:3}
-  .config-card{grid-column:1;grid-row:4}
+@media(max-width:900px){
+  .grid{grid-template-columns:1fr;grid-template-rows:auto auto auto auto auto}
+  .game-card,.metrics-card,.chart-card,.traj-card,.config-card{grid-column:1}
+  .game-card{grid-row:1}.metrics-card{grid-row:2}.chart-card{grid-row:3}
+  .traj-card{grid-row:4}.config-card{grid-row:5}
+  .game-card{grid-row:1}
+  .charts-row{grid-template-columns:1fr}
+  .chart-box{height:130px}
+  .metrics-grid{grid-template-columns:1fr 1fr}
+  #frame{min-height:180px}
+}
+@media(max-width:1200px) and (min-width:901px){
+  .grid{grid-template-columns:280px 1fr 1fr}
+  .chart-box{height:140px}
 }
 </style>
 </head>
@@ -90,6 +104,28 @@ h1{text-align:center;color:#58a6ff;font-size:1.3rem;padding:8px 0;letter-spacing
     <div class="metrics-grid" id="metricsGrid"></div>
   </div>
 
+  <!-- Charts -->
+  <div class="card chart-card">
+    <h3>Tendencias (sesión)</h3>
+    <div class="charts-row">
+      <div class="chart-box">
+        <span class="chart-title">Reward avg100</span>
+        <span class="chart-value" id="chartValReward">—</span>
+        <canvas id="chartReward"></canvas>
+      </div>
+      <div class="chart-box">
+        <span class="chart-title">Distancia avg100</span>
+        <span class="chart-value" id="chartValDist">—</span>
+        <canvas id="chartDist"></canvas>
+      </div>
+      <div class="chart-box">
+        <span class="chart-title">Max x histórico</span>
+        <span class="chart-value" id="chartValMaxX">—</span>
+        <canvas id="chartMaxX"></canvas>
+      </div>
+    </div>
+  </div>
+
   <!-- Trajectory map -->
   <div class="card traj-card">
     <h3>Mapa de trayectorias</h3>
@@ -108,6 +144,129 @@ h1{text-align:center;color:#58a6ff;font-size:1.3rem;padding:8px 0;letter-spacing
 const WS_BASE = `ws://${location.host}`;
 let connected = false;
 
+// --- Chart data (session only) ---
+const MAX_POINTS = 600;
+const series = {
+  reward:   [],
+  distance: [],
+  maxX:     [],
+  timestamps: [],
+};
+let lastEpisodes = 0;
+
+function pushChartData(d) {
+  const ep = d.episodes || 0;
+  if (ep <= lastEpisodes) return;
+  lastEpisodes = ep;
+  series.reward.push(d.reward_avg_100 || 0);
+  series.distance.push(d.distance_avg_100 || 0);
+  series.maxX.push(d.max_x_historical || 0);
+  series.timestamps.push(d.timesteps || 0);
+  if (series.reward.length > MAX_POINTS) {
+    series.reward.shift();
+    series.distance.shift();
+    series.maxX.shift();
+    series.timestamps.shift();
+  }
+  document.getElementById('chartValReward').textContent = fixed(d.reward_avg_100, 0);
+  document.getElementById('chartValDist').textContent = num(Math.floor(d.distance_avg_100));
+  document.getElementById('chartValMaxX').textContent = num(Math.floor(d.max_x_historical));
+  drawChart('chartReward', series.reward, '#3fb950', '#1a4028');
+  drawChart('chartDist', series.distance, '#58a6ff', '#1a3050');
+  drawChart('chartMaxX', series.maxX, '#f0883e', '#3d2a15');
+}
+
+function drawChart(canvasId, data, lineColor, fillColor) {
+  const canvas = document.getElementById(canvasId);
+  const rect = canvas.parentElement.getBoundingClientRect();
+  canvas.width = rect.width;
+  canvas.height = rect.height;
+  const ctx = canvas.getContext('2d');
+  const W = canvas.width, H = canvas.height;
+  const pad = {top: 22, bottom: 20, left: 2, right: 2};
+  const cW = W - pad.left - pad.right;
+  const cH = H - pad.top - pad.bottom;
+
+  ctx.fillStyle = '#0d1117';
+  ctx.fillRect(0, 0, W, H);
+
+  if (data.length < 2) return;
+
+  let minV = Math.min(...data);
+  let maxV = Math.max(...data);
+  if (maxV === minV) { maxV += 1; minV -= 1; }
+  const range = maxV - minV;
+
+  // Grid lines
+  ctx.strokeStyle = '#21262d';
+  ctx.lineWidth = 1;
+  for (let i = 0; i <= 3; i++) {
+    const gy = pad.top + (i / 3) * cH;
+    ctx.beginPath(); ctx.moveTo(pad.left, gy); ctx.lineTo(W - pad.right, gy); ctx.stroke();
+  }
+
+  // Axis labels
+  ctx.fillStyle = '#30363d';
+  ctx.font = '9px monospace';
+  ctx.textAlign = 'left';
+  ctx.fillText(formatAxis(maxV), pad.left + 2, pad.top + 10);
+  ctx.fillText(formatAxis(minV), pad.left + 2, H - pad.bottom - 2);
+
+  // Timestep labels
+  if (series.timestamps.length > 1) {
+    const startIdx = series.reward.length - data.length;
+    const tsStart = series.timestamps[Math.max(0, startIdx)] || 0;
+    const tsEnd = series.timestamps[series.timestamps.length - 1] || 0;
+    ctx.textAlign = 'left';
+    ctx.fillText(formatK(tsStart), pad.left + 2, H - 4);
+    ctx.textAlign = 'right';
+    ctx.fillText(formatK(tsEnd), W - pad.right - 2, H - 4);
+  }
+
+  const xStep = cW / (data.length - 1);
+  const toY = (v) => pad.top + cH - ((v - minV) / range) * cH;
+
+  // Fill area
+  ctx.beginPath();
+  ctx.moveTo(pad.left, toY(data[0]));
+  for (let i = 1; i < data.length; i++) {
+    ctx.lineTo(pad.left + i * xStep, toY(data[i]));
+  }
+  ctx.lineTo(pad.left + (data.length - 1) * xStep, pad.top + cH);
+  ctx.lineTo(pad.left, pad.top + cH);
+  ctx.closePath();
+  ctx.fillStyle = fillColor + '80';
+  ctx.fill();
+
+  // Line
+  ctx.beginPath();
+  ctx.moveTo(pad.left, toY(data[0]));
+  for (let i = 1; i < data.length; i++) {
+    ctx.lineTo(pad.left + i * xStep, toY(data[i]));
+  }
+  ctx.strokeStyle = lineColor;
+  ctx.lineWidth = 1.5;
+  ctx.stroke();
+
+  // Current dot
+  const lastX = pad.left + (data.length - 1) * xStep;
+  const lastY = toY(data[data.length - 1]);
+  ctx.fillStyle = lineColor;
+  ctx.beginPath();
+  ctx.arc(lastX, lastY, 3, 0, Math.PI * 2);
+  ctx.fill();
+}
+
+function formatAxis(v) {
+  if (Math.abs(v) >= 1000) return (v / 1000).toFixed(1) + 'k';
+  return v.toFixed(0);
+}
+function formatK(v) {
+  if (v >= 1000000) return (v / 1000000).toFixed(1) + 'M';
+  if (v >= 1000) return (v / 1000).toFixed(0) + 'k';
+  return v.toFixed(0);
+}
+
 // --- Metrics WebSocket ---
 function connectMetrics() {
   const ws = new WebSocket(`${WS_BASE}/stream/metrics`);
@@ -119,6 +278,7 @@ function connectMetrics() {
     updateProgress(d);
     updateBadge(d.mode);
     updateConfig(d);
+    pushChartData(d);
   };
 }
 
@@ -172,19 +332,18 @@ function updateMetrics(d) {
   const sps = elapsed > 1 ? (d.timesteps / elapsed) : 0;
 
   const metrics = [
-    ['timesteps', num(d.timesteps), 'episodios', num(d.episodes)],
-    ['steps/s', sps.toFixed(0), 'n_envs', d.n_envs || 1],
-    ['max x ep.', num(d.max_x_this_ep), 'max x hist.', num(Math.floor(d.max_x_historical))],
-    ['reward avg100', fixed(d.reward_avg_100, 1), 'último reward', fixed(d.last_episode_reward, 1)],
-    ['distancia avg100', num(Math.floor(d.distance_avg_100)), 'clear rate', (d.clear_rate_100 * 100).toFixed(1) + '%'],
-    ['coins avg100', fixed(d.coins_avg_100, 1), 'behavior score', fixed(d.behavior_score, 1)],
+    ['timesteps', num(d.timesteps), 'episodios', num(d.episodes), 'steps/s', sps.toFixed(0)],
+    ['max x ep.', num(d.max_x_this_ep), 'max x hist.', num(Math.floor(d.max_x_historical)), 'n_envs', d.n_envs || 1],
+    ['reward avg100', fixed(d.reward_avg_100, 1), 'distancia avg100', num(Math.floor(d.distance_avg_100)), 'clear rate', (d.clear_rate_100 * 100).toFixed(1) + '%'],
+    ['último reward', fixed(d.last_episode_reward, 1), 'coins avg100', fixed(d.coins_avg_100, 1), 'behavior score', fixed(d.behavior_score, 1)],
   ];
 
   const grid = document.getElementById('metricsGrid');
   grid.innerHTML = '';
-  for (const [k1, v1, k2, v2] of metrics) {
-    grid.appendChild(metricEl(k1, v1));
-    grid.appendChild(metricEl(k2, v2));
+  for (const row of metrics) {
+    for (let i = 0; i < row.length; i += 2) {
+      grid.appendChild(metricEl(row[i], row[i + 1]));
+    }
   }
 }
 
@@ -222,13 +381,11 @@ function drawTrajectories(trajs, current, xMax) {
   ctx.fillStyle = '#0d1117';
   ctx.fillRect(0, 0, W, H);
 
-  // Grid
   ctx.strokeStyle = '#21262d';
   ctx.lineWidth = 1;
   for (let i = 0; i <= 4; i++) {
     const gx = (i / 4) * W;
     ctx.beginPath(); ctx.moveTo(gx, 0); ctx.lineTo(gx, H); ctx.stroke();
-    // Zone label
     ctx.fillStyle = '#30363d';
     ctx.font = '10px monospace';
     ctx.fillText(`${Math.floor((i / 4) * xMax)}`, gx + 2, H - 4);
@@ -238,7 +395,6 @@ function drawTrajectories(trajs, current, xMax) {
   const yMin = 0, yMax = 255;
   const scaleY = H / (yMax - yMin);
 
-  // Past trajectories (faded)
   const total = trajs.length;
   for (let t = 0; t < total; t++) {
     const traj = trajs[t];
@@ -256,7 +412,6 @@ function drawTrajectories(trajs, current, xMax) {
     ctx.stroke();
   }
 
-  // Current trajectory (bright)
   if (current && current.length > 1) {
     ctx.strokeStyle = '#58a6ff';
     ctx.lineWidth = 2;
@@ -270,7 +425,6 @@ function drawTrajectories(trajs, current, xMax) {
     ctx.stroke();
     ctx.shadowBlur = 0;
 
-    // Current position dot
     const last = current[current.length - 1];
     ctx.fillStyle = '#f0883e';
     ctx.beginPath();

@@ -239,6 +239,7 @@ def _parse_args() -> argparse.Namespace:
     p.add_argument("--train", action="store_true")
     p.add_argument("--resume", action="store_true")
     p.add_argument("--evaluate", action="store_true")
+    p.add_argument("--demo", action="store_true", help="Modo demostración en http://127.0.0.1:8000/demo")
     p.add_argument("--model-path", default=None)
     p.add_argument("--episodes", type=int, default=5)
     p.add_argument("--timesteps", type=int, default=None)
@@ -259,6 +260,21 @@ def main() -> None:
     # Dashboard web read-only — se engancha al mismo SharedState
     start_dashboard(state, cfg, port=8000)
     console.print("[dim]dashboard en http://127.0.0.1:8000[/]")
+
+    # Modo demo
+    if args.demo:
+        model = args.model_path or str(cfg.paths.model_save_path)
+        console.print(f"[bold cyan]Modo demostración[/]")
+        console.print(f"[dim]modelo: {model}[/]")
+        console.print(f"[bold green]Abrí http://127.0.0.1:8000/demo en el navegador[/]")
+        console.print("[dim]Ctrl+C para salir[/]")
+        try:
+            trainer.run_demo(model_path=model, n_episodes=0)
+        except FileNotFoundError:
+            console.print(f"[red]Modelo no encontrado: {model}[/]")
+        except KeyboardInterrupt:
+            pass
+        return
 
     # Modo directo por CLI
     if args.train:

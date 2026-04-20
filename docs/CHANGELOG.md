@@ -277,11 +277,138 @@ training:
 
 ---
 
+## Cambio 7 — Subir exploración y desactivar death map
+
+### Problema a ~400k steps
+El agente mostraba un patrón cíclico: subía distancia avg100 hasta ~500, luego caía al mínimo (~180), y repetía. Nunca salía de ese ciclo. `max x hist.` estancado en 1,934 por mucho tiempo.
+
+### Diagnóstico
+- **`ent_coef: 0.02` insuficiente**: el agente encontraba una estrategia, un update la destruía, y no tenía suficiente exploración para recuperarse rápido.
+- **death_map activo**: penalizaba morir en zonas donde ya había muerto. Esto paralizaba la exploración — el agente evitaba zonas difíciles en vez de aprender a superarlas.
+- **Penalizaciones de muerte altas**: -15 por enemigo hacía que el agente priorizara "no morir" sobre "avanzar".
+
+### Cambios en default.yaml
+| Parámetro | Antes | Después | Razón |
+|---|---|---|---|
+| `ent_coef` | 0.02 | **0.04** | Más exploración, el cambio más impactante |
+| `flag_bonus` | 15 | **30** | Más incentivo por completar el nivel |
+| `death_by_enemy_penalty` | -15 | **-10** | Menos miedo a morir = explora más |
+| `death_by_time_penalty` | -8 | **-5** | Idem |
+| `enable_death_map` | true | **false** | Dejaba de explorar zonas difíciles |
+
+### Decisión: reiniciar desde cero
+La política de 400k steps estaba viciada (patrón cíclico sin progreso). Dado que 400k es solo ~8% del entrenamiento total y se recupera en ~56 minutos, reiniciar desde cero con la nueva config es más eficiente que intentar arreglar una red con malos hábitos.
+
+---
+
+## Run 3 — Resultados con ent_coef 0.04 (19 abril 2026)
+
+### Mejor arranque hasta ahora
+A 206k steps, el run 3 fue el mejor de todos:
+
+| Métrica | Run 1 (ent 0.02) | Run 2 (ent 0.02) | **Run 3 (ent 0.04)** |
+|---|---|---|---|
+| distancia avg100 | 186 | 392 | **638** |
+| reward avg100 | -307 | 807 | **1,278** |
+| max x hist. | 300 | 1,542 | **1,654** |
+| coins avg100 | 0.1 | 0.4 | **1.3** |
+
+### Problema: oscilaciones destructivas
+El run mostró un patrón recurrente:
+- Subía distancia avg100 a ~600
+- Bajaba a ~200
+- Subía a ~500
+- Bajaba a ~200
+
+A 331k steps: distancia avg100 en 198, max hist estancado en 1,730. Los gráficos de tendencia confirmaron que no salía del ciclo.
+
+### Diagnóstico
+**`n_epochs: 10` era demasiado alto.** Con 10 epochs, PPO pasa 10 veces sobre cada batch de 2048 transiciones. Si un batch tiene datos malos (muchos episodios atascados), esas 10 pasadas "sobreescriben" la política buena que tenía. Es la causa principal del catastrophic forgetting severo.
+
+Otros factores:
+- `no_progress_limit: 200` todavía desperdiciaba muchos steps en episodios atascados
+- `enable_cyclic_detection: true` agregaba ruido de penalización innecesario (redundante con no_progress_limit)
+
+---
+
+## Cambio 8 — Reducir n_epochs y optimizar episodios
+
+### Cambios en default.yaml
+| Parámetro | Antes | Después | Razón |
+|---|---|---|---|
+| `n_epochs` | 10 | **4** | Menos overfitting por batch, updates más suaves, menos catastrophic forgetting |
+| `no_progress_limit` | 200 | **120** | Corta episodios atascados en 120 steps en vez de 200 |
+| `enable_cyclic_detection` | true | **false** | Redundante con no_progress_limit, solo agregaba ruido negativo |
+
+### Razonamiento
+- `n_epochs: 4` es el valor que usa fast_debug.yaml y funciona bien. La literatura de PPO (Schulman et al.) sugiere 3-10 epochs; para environments inestables como Mario, menos es más estable.
+- `no_progress_limit: 120` = ~480 frames de juego (~8 segundos). Si Mario no avanza en 8 segundos, está genuinamente atascado.
+- Sin detección cíclica, el agente recibe menos señal negativa espuria. Los episodios atascados ya mueren por el no_progress_limit.
+
+### Decisión: reiniciar desde cero
+Mismo razonamiento que el cambio 7: la política de 331k steps estaba en un ciclo destructivo, y 331k es solo ~6.6% del total.
+
+---
+
+## Cambio 9 — Modo demostración para clase
+
+### Implementación
+Nuevo modo `--demo` para presentar el modelo entrenado en clase:
+
+```bash
+python app.py --demo --model-path models_saved/mario_ppo
+```
+
+Abre `http://127.0.0.1:8000/demo` con:
+- Gameplay grande (512x480, pixelated)
+- Barra de progreso del nivel en tiempo real
+- Stats en vivo: score, monedas, tiempo, distancia
+- Scoreboard con historial de episodios (CLEAR/MUERTO, distancia, %, score, monedas)
+- Resumen: total clears, mejor distancia, clear rate
+
+### Archivos creados/modificados
+- `ui/static/demo.html` — página de demostración limpia, sin métricas de entrenamiento
+- `ui/observer.py` — ruta `/demo`
+- `training/trainer.py` — método `run_demo()` con streaming de frames
+- `training/shared_state.py` — campos demo (score, coins, time, results)
+- `app.py` — flag `--demo`
+
+Se puede elegir cualquier checkpoint: `--model-path checkpoints/mario_ppo_500000`
+
+---
+
+## Config actual (post cambio 8)
+
+```yaml
+ppo:
+  ent_coef: 0.04
+  n_epochs: 4              # bajado de 10
+
+reward:
+  forward_reward_coef: 2.0
+  flag_bonus: 30.0
+  death_by_enemy_penalty: -10.0
+  death_by_time_penalty: -5.0
+  stuck_penalty_base: -0.2
+  wall_stuck_penalty: -0.1
+  micro_movement_penalty: -0.3
+  excessive_left_penalty: -0.05
+  enable_cyclic_detection: false   # desactivado
+  enable_death_map: false
+  no_progress_limit: 120           # bajado de 200
+
+training:
+  n_envs: 4
+  total_timesteps: 5000000
+```
+
+---
+
 ## Próximos pasos pendientes
 
 Ver `docs/GUIA_AJUSTES.md` para qué hacer en cada checkpoint:
-- **500k steps**: si distancia avg100 < 250 → suavizar penalizaciones más
-- **1M steps**: si distancia avg100 < 400 → subir `ent_coef` a 0.04 (requiere reiniciar)
-- **2M steps**: si 0 clears → reiniciar con config agresiva
-- **3-4M steps**: si clear rate > 50% → optimizar para puntaje (coins, time bonus)
+- **500k steps**: distancia avg100 > 500, gráficos subiendo → no tocar
+- **1M steps**: distancia avg100 > 800, max hist > 2500 → no tocar
+- **2M steps**: primer clear (clear rate > 0%) → subir flag_bonus si se acerca pero no completa
+- **3-4M steps**: clear rate > 50% → optimizar para puntaje (coins, time bonus)
 - **5M steps**: evaluar modelo final con 20 episodios

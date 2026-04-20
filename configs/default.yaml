@@ -9,11 +9,11 @@ ppo:
   learning_rate: 0.00025
   n_steps: 512
   batch_size: 64
-  n_epochs: 10
+  n_epochs: 4
   gamma: 0.99
   gae_lambda: 0.95
   clip_range: 0.2
-  ent_coef: 0.02
+  ent_coef: 0.04
   vf_coef: 0.5
   max_grad_norm: 0.5
   use_linear_lr_schedule: true
@@ -26,21 +26,21 @@ reward:
   vertical_explore_reward: 0.5
   time_penalty_coef: -0.001
   time_remaining_bonus_coef: 0.1
-  flag_bonus: 15.0
+  flag_bonus: 30.0
 
-  death_by_enemy_penalty: -15.0
-  death_by_time_penalty: -8.0
+  death_by_enemy_penalty: -10.0
+  death_by_time_penalty: -5.0
 
   stuck_penalty_base: -0.2
   stuck_threshold_base: 30
 
-  enable_cyclic_detection: true
+  enable_cyclic_detection: false
   cyclic_action_penalty: -0.2
   cyclic_window: 40
   cyclic_min_repeats: 3
   cyclic_progress_threshold: 8
 
-  enable_death_map: true
+  enable_death_map: false
   death_bucket_size: 32
   death_bucket_coef: -0.5
   death_bucket_cap: -10.0
@@ -64,7 +64,7 @@ reward:
   record_distance_bonus: 5.0
   record_time_bonus: 10.0
 
-  no_progress_limit: 200
+  no_progress_limit: 120
 
 training:
   total_timesteps: 5000000

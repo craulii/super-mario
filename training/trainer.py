@@ -217,6 +217,115 @@ class Trainer:
         return results
 
     # ------------------------------------------------------------------
+    # Demo (evaluación en loop con streaming de frames)
+    # ------------------------------------------------------------------
+    def run_demo(
+        self,
+        model_path: Path | str | None = None,
+        n_episodes: int = 0,
+    ) -> None:
+        """Ejecuta episodios de evaluación en loop, streameando frames al SharedState.
+
+        n_episodes=0 → loop infinito hasta Ctrl+C.
+        """
+        if self.is_running():
+            raise RuntimeError("demo requiere trainer detenido")
+        self._cfg.ensure_dirs()
+
+        env = make_env(self._cfg, death_map=None)
+        try:
+            path = Path(model_path) if model_path else self._cfg.paths.model_save_path
+            model, _ = load_model(path, env=env, device=self._cfg.training.device)
+        except FileNotFoundError:
+            env.close()
+            raise
+
+        with self._state.lock:
+            self._state.mode = "evaluating"
+            self._state.demo_results = []
+
+        ep = 0
+        total = n_episodes if n_episodes > 0 else float("inf")
+        try:
+            while ep < total and not self._state.stop_event.is_set():
+                ep += 1
+                reset_result = env.reset()
+                obs = reset_result[0] if isinstance(reset_result, tuple) else reset_result
+                done = False
+                total_reward = 0.0
+                max_x = 0
+                flag = False
+                coins = 0
+                score = 0
+                time_left = 400
+
+                with self._state.lock:
+                    self._state.demo_episode = ep
+                    self._state.demo_score = 0
+                    self._state.demo_coins = 0
+                    self._state.demo_time = 400
+                    self._state.demo_flag = False
+
+                while not done and not self._state.stop_event.is_set():
+                    action, _ = model.predict(obs, deterministic=True)
+                    step_result = env.step(action)
+                    if len(step_result) == 5:
+                        obs, reward, terminated, truncated, info = step_result
+                        done = terminated or truncated
+                    else:
+                        obs, reward, done, info = step_result
+                    total_reward += float(reward)
+                    x = int(info.get("x_pos", 0))
+                    max_x = max(max_x, x)
+                    flag = bool(info.get("flag_get", False))
+                    coins = int(info.get("coins", coins))
+                    score = int(info.get("score", score))
+                    time_left = int(info.get("time", time_left))
+
+                    # Capturar frame
+                    try:
+                        frame = env.render()
+                        if isinstance(frame, tuple):
+                            frame = frame[0]
+                        if frame is not None:
+                            with self._state.lock:
+                                self._state.last_frame = np.asarray(frame, dtype=np.uint8)
+                    except Exception:
+                        pass
+
+                    with self._state.lock:
+                        self._state.current_x = x
+                        self._state.max_x_this_ep = max_x
+                        self._state.demo_score = score
+                        self._state.demo_coins = coins
+                        self._state.demo_time = time_left
+                        self._state.demo_flag = flag
+                        self._state.current_trajectory.append(
+                            (x, int(info.get("y_pos", 0)))
+                        )
+
+                # Episodio terminado
+                result = {
+                    "episode": ep,
+                    "max_x": max_x,
+                    "flag_get": flag,
+                    "coins": coins,
+                    "score": score,
+                    "time_left": time_left,
+                    "progress": round(max_x / 3360 * 100, 1),
+                }
+                with self._state.lock:
+                    self._state.demo_results.append(result)
+                    if len(self._state.demo_results) > 50:
+                        self._state.demo_results = self._state.demo_results[-50:]
+                self._state.push_trajectory()
+
+        finally:
+            env.close()
+            with self._state.lock:
+                self._state.mode = "idle"
+
+    # ------------------------------------------------------------------
     # Propagación de reward config a subprocesos
     # ------------------------------------------------------------------
     def propagate_reward_config(self, patch: dict) -> None:

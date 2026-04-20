@@ -52,6 +52,14 @@ class SharedState:
     zone_survival: dict[int, float] = field(default_factory=dict)
 
     last_frame: np.ndarray | None = None
+
+    # Demo mode
+    demo_episode: int = 0
+    demo_score: int = 0
+    demo_coins: int = 0
+    demo_time: int = 400
+    demo_flag: bool = False
+    demo_results: list[dict] = field(default_factory=list)
     current_trajectory: list[tuple[int, int]] = field(default_factory=list)
     trajectories: list[list[tuple[int, int]]] = field(default_factory=list)
 
@@ -121,6 +129,12 @@ class SharedState:
                 "zone_survival": dict(self.zone_survival),
                 "paused": self.pause_event.is_set(),
                 "stopping": self.stop_event.is_set(),
+                "demo_episode": self.demo_episode,
+                "demo_score": self.demo_score,
+                "demo_coins": self.demo_coins,
+                "demo_time": self.demo_time,
+                "demo_flag": self.demo_flag,
+                "demo_results": list(self.demo_results),
             }
 
     def push_trajectory(self) -> None:

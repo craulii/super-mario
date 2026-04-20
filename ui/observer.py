@@ -41,6 +41,12 @@ def create_app(state: SharedState, cfg: Config) -> FastAPI:
             (STATIC_DIR / "observer.html").read_text(encoding="utf-8")
         )
 
+    @app.get("/demo")
+    async def demo():
+        return HTMLResponse(
+            (STATIC_DIR / "demo.html").read_text(encoding="utf-8")
+        )
+
     @app.get("/status")
     async def status():
         snap = state.snapshot()

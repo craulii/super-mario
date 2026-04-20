@@ -1,0 +1,230 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Super Mario Bros RL — Demo</title>
+<style>
+*{margin:0;padding:0;box-sizing:border-box}
+body{background:#0a0a1a;color:#e0e0e0;font-family:'Segoe UI',system-ui,sans-serif;min-height:100vh;display:flex;flex-direction:column;align-items:center;padding:20px}
+
+h1{font-size:2rem;color:#ff6b6b;text-align:center;margin-bottom:4px;letter-spacing:2px}
+.subtitle{color:#888;font-size:.9rem;margin-bottom:20px;text-align:center}
+
+.main{display:flex;gap:24px;width:100%;max-width:1100px;align-items:flex-start}
+
+/* Game panel */
+.game-panel{flex:0 0 520px;display:flex;flex-direction:column;gap:12px}
+#frame{width:512px;height:480px;image-rendering:pixelated;border-radius:8px;background:#000;border:2px solid #333;display:block}
+
+/* Progress bar */
+.level-bar{width:100%;position:relative}
+.level-track{width:100%;height:20px;background:#1a1a2e;border-radius:10px;overflow:hidden}
+.level-fill{height:100%;border-radius:10px;background:linear-gradient(90deg,#e74c3c,#f39c12,#2ecc71);transition:width .3s ease}
+.level-label{position:absolute;top:0;left:0;right:0;height:20px;display:flex;align-items:center;justify-content:center;font-size:.75rem;font-weight:700;color:#fff;text-shadow:0 1px 2px rgba(0,0,0,.8)}
+
+/* Live stats */
+.stats{display:grid;grid-template-columns:repeat(4,1fr);gap:8px}
+.stat{background:#1a1a2e;border-radius:8px;padding:10px;text-align:center;border:1px solid #2a2a4a}
+.stat-label{font-size:.65rem;color:#888;text-transform:uppercase;letter-spacing:1px}
+.stat-value{font-size:1.4rem;font-weight:700;margin-top:2px;font-variant-numeric:tabular-nums}
+.stat-value.score-val{color:#f1c40f}
+.stat-value.coins-val{color:#f39c12}
+.stat-value.time-val{color:#3498db}
+.stat-value.dist-val{color:#2ecc71}
+
+/* Results panel */
+.results-panel{flex:1;min-width:300px}
+.results-panel h2{font-size:1rem;color:#888;text-transform:uppercase;letter-spacing:2px;margin-bottom:12px;border-bottom:1px solid #2a2a4a;padding-bottom:8px}
+
+.results-table{width:100%;border-collapse:collapse}
+.results-table th{text-align:left;color:#666;font-size:.7rem;text-transform:uppercase;letter-spacing:1px;padding:6px 8px;border-bottom:1px solid #2a2a4a}
+.results-table td{padding:8px;font-size:.85rem;border-bottom:1px solid #1a1a2e;font-variant-numeric:tabular-nums}
+.results-table tr:hover{background:#1a1a2e}
+.results-table .clear-yes{color:#2ecc71;font-weight:700}
+.results-table .clear-no{color:#e74c3c}
+
+/* Episode badge */
+.ep-badge{display:inline-flex;align-items:center;justify-content:center;background:#1a1a2e;border:1px solid #2a2a4a;border-radius:6px;padding:8px 16px;margin-bottom:12px;font-size:.85rem;color:#888}
+.ep-badge span{color:#ff6b6b;font-weight:700;font-size:1.1rem;margin-left:6px}
+
+/* Summary stats */
+.summary{display:grid;grid-template-columns:repeat(3,1fr);gap:8px;margin-bottom:16px}
+.summary-item{background:#1a1a2e;border:1px solid #2a2a4a;border-radius:6px;padding:8px;text-align:center}
+.summary-label{font-size:.6rem;color:#666;text-transform:uppercase}
+.summary-value{font-size:1.1rem;font-weight:700;color:#58a6ff}
+
+/* Status indicator */
+.status{position:fixed;top:10px;right:16px;font-size:.7rem;padding:4px 10px;border-radius:10px}
+.status.live{background:#2ecc71;color:#000;animation:pulse 2s infinite}
+.status.off{background:#e74c3c;color:#fff}
+@keyframes pulse{0%,100%{opacity:1}50%{opacity:.6}}
+
+@media(max-width:900px){
+  .main{flex-direction:column;align-items:center}
+  .game-panel{flex:none;width:100%}
+  #frame{width:100%;height:auto;aspect-ratio:256/240}
+  .results-panel{width:100%}
+}
+</style>
+</head>
+<body>
+
+<h1>Super Mario Bros</h1>
+<div class="subtitle">Agente PPO — Reinforcement Learning</div>
+<div id="statusEl" class="status off">desconectado</div>
+
+<div class="main">
+
+  <!-- Game -->
+  <div class="game-panel">
+    <img id="frame" alt="Mario" />
+
+    <div class="level-bar">
+      <div class="level-track"><div class="level-fill" id="levelFill" style="width:0%"></div></div>
+      <div class="level-label" id="levelLabel">0%</div>
+    </div>
+
+    <div class="stats">
+      <div class="stat">
+        <div class="stat-label">Score</div>
+        <div class="stat-value score-val" id="valScore">0</div>
+      </div>
+      <div class="stat">
+        <div class="stat-label">Monedas</div>
+        <div class="stat-value coins-val" id="valCoins">0</div>
+      </div>
+      <div class="stat">
+        <div class="stat-label">Tiempo</div>
+        <div class="stat-value time-val" id="valTime">400</div>
+      </div>
+      <div class="stat">
+        <div class="stat-label">Distancia</div>
+        <div class="stat-value dist-val" id="valDist">0</div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Results -->
+  <div class="results-panel">
+    <div class="ep-badge">Episodio <span id="epNum">—</span></div>
+
+    <div class="summary">
+      <div class="summary-item">
+        <div class="summary-label">Completados</div>
+        <div class="summary-value" id="sumClears">0</div>
+      </div>
+      <div class="summary-item">
+        <div class="summary-label">Mejor distancia</div>
+        <div class="summary-value" id="sumBestX">0</div>
+      </div>
+      <div class="summary-item">
+        <div class="summary-label">Clear rate</div>
+        <div class="summary-value" id="sumClearRate">0%</div>
+      </div>
+    </div>
+
+    <h2>Historial de episodios</h2>
+    <table class="results-table">
+      <thead>
+        <tr>
+          <th>#</th>
+          <th>Resultado</th>
+          <th>Distancia</th>
+          <th>Progreso</th>
+          <th>Score</th>
+          <th>Monedas</th>
+        </tr>
+      </thead>
+      <tbody id="resultsBody"></tbody>
+    </table>
+  </div>
+
+</div>
+
+<script>
+const WS = `ws://${location.host}`;
+
+// --- Metrics ---
+function connectMetrics() {
+  const ws = new WebSocket(`${WS}/stream/metrics`);
+  ws.onopen = () => {
+    document.getElementById('statusEl').className = 'status live';
+    document.getElementById('statusEl').textContent = 'en vivo';
+  };
+  ws.onclose = () => {
+    document.getElementById('statusEl').className = 'status off';
+    document.getElementById('statusEl').textContent = 'desconectado';
+    setTimeout(connectMetrics, 2000);
+  };
+  ws.onmessage = (e) => {
+    const d = JSON.parse(e.data);
+    const x = d.current_x || 0;
+    const pct = Math.min(100, (x / 3360) * 100);
+
+    document.getElementById('levelFill').style.width = pct + '%';
+    document.getElementById('levelLabel').textContent = pct.toFixed(1) + '% — x=' + x + '/3360';
+
+    document.getElementById('valScore').textContent = (d.demo_score || 0).toLocaleString();
+    document.getElementById('valCoins').textContent = d.demo_coins || 0;
+    document.getElementById('valTime').textContent = d.demo_time || 0;
+    document.getElementById('valDist').textContent = (d.max_x_this_ep || 0).toLocaleString();
+    document.getElementById('epNum').textContent = d.demo_episode || '—';
+
+    updateResults(d.demo_results || []);
+  };
+}
+
+// --- Frame ---
+function connectFrame() {
+  const ws = new WebSocket(`${WS}/stream/frame`);
+  ws.onclose = () => setTimeout(connectFrame, 2000);
+  ws.onmessage = (e) => {
+    document.getElementById('frame').src = 'data:image/jpeg;base64,' + e.data;
+  };
+}
+
+// --- Results table ---
+let lastResultCount = 0;
+function updateResults(results) {
+  if (results.length === lastResultCount) return;
+  lastResultCount = results.length;
+
+  const tbody = document.getElementById('resultsBody');
+  tbody.innerHTML = '';
+
+  let clears = 0;
+  let bestX = 0;
+
+  // Show newest first
+  for (let i = results.length - 1; i >= 0; i--) {
+    const r = results[i];
+    if (r.flag_get) clears++;
+    if (r.max_x > bestX) bestX = r.max_x;
+
+    const tr = document.createElement('tr');
+    const resultText = r.flag_get
+      ? '<span class="clear-yes">CLEAR</span>'
+      : '<span class="clear-no">MUERTO</span>';
+    tr.innerHTML = `
+      <td>${r.episode}</td>
+      <td>${resultText}</td>
+      <td>${r.max_x.toLocaleString()}</td>
+      <td>${r.progress}%</td>
+      <td>${r.score.toLocaleString()}</td>
+      <td>${r.coins}</td>
+    `;
+    tbody.appendChild(tr);
+  }
+
+  const clearRate = results.length > 0 ? (clears / results.length * 100).toFixed(0) : 0;
+  document.getElementById('sumClears').textContent = clears;
+  document.getElementById('sumBestX').textContent = bestX.toLocaleString();
+  document.getElementById('sumClearRate').textContent = clearRate + '%';
+}
+
+connectMetrics();
+connectFrame();
+</script>
+</body>
+</html>
