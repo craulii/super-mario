@@ -606,6 +606,59 @@ training:
 
 ---
 
+## Run 7 — Config de compromiso (20 abril 2026)
+
+### Análisis del CSV (logs/run_20260420_010846.csv)
+3916 episodios, 180k steps. Tendencia por bloques de 500 episodios:
+
+| Bloque | Dist avg | Reward avg |
+|---|---|---|
+| ep 1-500 | 342 | 735 |
+| ep 501-1000 | 309 | 649 |
+| ep 1001-1500 | 272 | 569 |
+| ep 1501-2000 | 303 | 641 |
+| ep 2001-2500 | 214 | 435 |
+| ep 2501-3500 | **180** | **365** |
+
+Colapsó a dist_avg=180 para los últimos 1000 episodios. Max hist estancado en 1,306. 113 episodios con x>800 (de 3916 total = 2.9%).
+
+### Causa raíz identificada: equilibrio perverso del truncamiento
+
+El `no_progress_limit=120` con penalización `death_by_time_penalty=-5` creaba un incentivo perverso:
+
+```
+Opción A: intentar saltar obstáculo → riesgo de morir por enemigo → penalty -10
+Opción B: quedarse quieto 120 steps → truncamiento seguro → penalty -5
+```
+
+**El agente aprendía que esperar el truncamiento (-5) es más seguro que intentar (-10).** Así acumulaba ~365 de reward "seguro" por episodio (180px × 2.0 forward - 5 truncamiento).
+
+---
+
+## Cambio 14 — Igualar penalización de truncamiento (20 abril 2026)
+
+### Solución
+Cambiar la penalización de truncamiento por no-progreso de `death_by_time_penalty` (-5) a `death_by_enemy_penalty` (-10). Ahora no hay ventaja en "esperar" vs "intentar":
+
+```python
+# Antes:
+shaped += cfg.death_by_time_penalty   # -5 (más suave que morir)
+
+# Después:
+shaped += cfg.death_by_enemy_penalty  # -10 (igual que morir)
+```
+
+### Archivos modificados
+- `env/reward_shaping.py` — truncamiento usa death_by_enemy_penalty
+
+### Otros cambios de infraestructura en esta sesión
+- Checkpoints organizados por run: `checkpoints/run_YYYYMMDD_HHMMSS/`
+- CSV logs comparten run_id con checkpoints
+- Gráficos de tendencia mejorados: media móvil suavizada + datos raw + envolvente min/max
+- Fix: checkpoint timing usa `num_timesteps` en vez de `n_calls`
+
+---
+
 ## Resumen de todos los runs
 
 | Run | Config clave | Mejor dist avg100 | Max x hist | Problema |
@@ -616,13 +669,14 @@ training:
 | 4 | ent=0.01, epochs=4, 8 envs, SIMPLE | 271 | 1,193 | Picos no subían |
 | 5 | ent=0.02, epochs=4, batch=256 | 332 | 950 | 82% episodios en x=198 |
 | 6 | ent=0.02 + distance scale | 131 | 856 | Colapso rápido a x=41 |
-| 7 | **compromiso (actual)** | ? | ? | En curso... |
+| 7 | compromiso (ent=0.04, epochs=4, batch=64) | 342 | 1,306 | Colapso a 180 por equilibrio perverso de truncamiento |
+| 8 | **truncamiento igualado (actual)** | ? | ? | En curso... |
 
 ---
 
 ## Próximos pasos pendientes
 
-- **Dejar correr 1 hora mínimo sin tocar**
+- **Dejar correr toda la noche** sin tocar
 - **500k steps**: dist avg100 > 500, max hist subiendo
 - **1M steps**: dist avg100 > 800
 - **2M steps**: primer clear

@@ -218,7 +218,7 @@ class AdvancedRewardWrapper(gym.Wrapper):
         ):
             truncated = True
             done = True
-            shaped += cfg.death_by_time_penalty
+            shaped += cfg.death_by_enemy_penalty
 
         # 2) Exploración vertical en buckets
         y_bucket = y // 16
