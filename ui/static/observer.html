@@ -1,0 +1,292 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Mario RL — Observer</title>
+<style>
+*{margin:0;padding:0;box-sizing:border-box}
+body{background:#0d1117;color:#c9d1d9;font-family:'Segoe UI',system-ui,sans-serif;padding:12px;min-height:100vh}
+h1{text-align:center;color:#58a6ff;font-size:1.3rem;padding:8px 0;letter-spacing:1px}
+.status-badge{display:inline-block;padding:2px 10px;border-radius:10px;font-size:.75rem;font-weight:600;margin-left:8px;vertical-align:middle}
+.status-training{background:#238636;color:#fff}
+.status-paused{background:#d29922;color:#000}
+.status-idle{background:#388bfd;color:#fff}
+.status-stopping{background:#da3633;color:#fff}
+
+.grid{display:grid;grid-template-columns:320px 1fr;grid-template-rows:auto auto 1fr;gap:10px;margin-top:8px;height:calc(100vh - 60px)}
+
+.card{background:#161b22;border:1px solid #30363d;border-radius:8px;padding:12px;overflow:hidden}
+.card h3{color:#8b949e;font-size:.75rem;text-transform:uppercase;letter-spacing:1px;margin-bottom:8px;border-bottom:1px solid #21262d;padding-bottom:4px}
+
+/* Game viewer */
+.game-card{grid-column:1;grid-row:1/3}
+#frame{width:100%;image-rendering:pixelated;border-radius:4px;background:#000;min-height:240px;display:block}
+
+/* Progress bars */
+.progress-section{margin-top:10px}
+.progress-label{display:flex;justify-content:space-between;font-size:.75rem;color:#8b949e;margin-bottom:3px}
+.progress-label span:last-child{color:#58a6ff;font-weight:600}
+.bar-track{width:100%;height:14px;background:#21262d;border-radius:7px;overflow:hidden;margin-bottom:8px}
+.bar-fill{height:100%;border-radius:7px;transition:width .4s ease}
+.bar-level{background:linear-gradient(90deg,#238636,#2ea043)}
+.bar-train{background:linear-gradient(90deg,#1f6feb,#58a6ff)}
+
+/* Metrics */
+.metrics-card{grid-column:2;grid-row:1}
+.metrics-grid{display:grid;grid-template-columns:1fr 1fr;gap:6px 20px}
+.metric{display:flex;justify-content:space-between;padding:4px 0;border-bottom:1px solid #21262d;font-size:.85rem}
+.metric-key{color:#8b949e}
+.metric-val{color:#e6edf3;font-weight:600;font-variant-numeric:tabular-nums}
+.metric-val.positive{color:#3fb950}
+.metric-val.negative{color:#f85149}
+.metric-val.highlight{color:#58a6ff}
+
+/* Trajectory */
+.traj-card{grid-column:2;grid-row:2/4}
+#trajCanvas{width:100%;height:100%;min-height:200px;border-radius:4px;background:#0d1117}
+
+/* Config */
+.config-card{grid-column:1;grid-row:3}
+.config-item{font-size:.8rem;padding:2px 0;color:#8b949e}
+.config-item b{color:#c9d1d9}
+
+/* Connection indicator */
+.conn{position:fixed;top:6px;right:12px;font-size:.7rem;padding:2px 8px;border-radius:8px}
+.conn.ok{background:#238636;color:#fff}
+.conn.off{background:#da3633;color:#fff}
+
+@media(max-width:700px){
+  .grid{grid-template-columns:1fr;grid-template-rows:auto auto auto auto}
+  .game-card{grid-column:1;grid-row:1}
+  .metrics-card{grid-column:1;grid-row:2}
+  .traj-card{grid-column:1;grid-row:3}
+  .config-card{grid-column:1;grid-row:4}
+}
+</style>
+</head>
+<body>
+
+<h1>Mario RL <span id="badge" class="status-badge status-idle">idle</span></h1>
+<div id="connIndicator" class="conn off">desconectado</div>
+
+<div class="grid">
+
+  <!-- Game viewer -->
+  <div class="card game-card">
+    <h3>Juego en vivo</h3>
+    <img id="frame" alt="game frame" />
+    <div class="progress-section">
+      <div class="progress-label"><span>Nivel</span><span id="levelPct">0.0%</span></div>
+      <div class="bar-track"><div class="bar-fill bar-level" id="levelBar" style="width:0%"></div></div>
+      <div class="progress-label"><span>Entrenamiento</span><span id="trainPct">0.0%</span></div>
+      <div class="bar-track"><div class="bar-fill bar-train" id="trainBar" style="width:0%"></div></div>
+    </div>
+  </div>
+
+  <!-- Metrics -->
+  <div class="card metrics-card">
+    <h3>Métricas</h3>
+    <div class="metrics-grid" id="metricsGrid"></div>
+  </div>
+
+  <!-- Trajectory map -->
+  <div class="card traj-card">
+    <h3>Mapa de trayectorias</h3>
+    <canvas id="trajCanvas"></canvas>
+  </div>
+
+  <!-- Config -->
+  <div class="card config-card">
+    <h3>Config</h3>
+    <div id="configInfo"></div>
+  </div>
+
+</div>
+
+<script>
+const WS_BASE = `ws://${location.host}`;
+let connected = false;
+
+// --- Metrics WebSocket ---
+function connectMetrics() {
+  const ws = new WebSocket(`${WS_BASE}/stream/metrics`);
+  ws.onopen = () => { setConnected(true); };
+  ws.onclose = () => { setConnected(false); setTimeout(connectMetrics, 2000); };
+  ws.onmessage = (e) => {
+    const d = JSON.parse(e.data);
+    updateMetrics(d);
+    updateProgress(d);
+    updateBadge(d.mode);
+    updateConfig(d);
+  };
+}
+
+// --- Frame WebSocket ---
+function connectFrame() {
+  const ws = new WebSocket(`${WS_BASE}/stream/frame`);
+  ws.onclose = () => setTimeout(connectFrame, 2000);
+  ws.onmessage = (e) => {
+    document.getElementById('frame').src = 'data:image/jpeg;base64,' + e.data;
+  };
+}
+
+// --- Trajectories WebSocket ---
+function connectTrajectories() {
+  const ws = new WebSocket(`${WS_BASE}/stream/trajectories`);
+  ws.onclose = () => setTimeout(connectTrajectories, 2000);
+  ws.onmessage = (e) => {
+    const d = JSON.parse(e.data);
+    drawTrajectories(d.trajectories, d.current, d.x_max);
+  };
+}
+
+function setConnected(v) {
+  connected = v;
+  const el = document.getElementById('connIndicator');
+  el.className = v ? 'conn ok' : 'conn off';
+  el.textContent = v ? 'conectado' : 'desconectado';
+}
+
+function updateBadge(mode) {
+  const el = document.getElementById('badge');
+  el.textContent = mode;
+  el.className = 'status-badge status-' + (mode || 'idle');
+}
+
+function updateProgress(d) {
+  const xMax = d.x_max_level || 3360;
+  const levelPct = Math.min(100, (d.current_x / xMax) * 100);
+  document.getElementById('levelPct').textContent = levelPct.toFixed(1) + '%';
+  document.getElementById('levelBar').style.width = levelPct + '%';
+
+  const total = d.total_timesteps || 5000000;
+  const trainPct = Math.min(100, (d.timesteps / total) * 100);
+  document.getElementById('trainPct').textContent = trainPct.toFixed(1) + '%';
+  document.getElementById('trainBar').style.width = trainPct + '%';
+}
+
+function updateMetrics(d) {
+  const t0 = d.training_start_time || 0;
+  const elapsed = t0 > 0 ? (Date.now() / 1000 - t0) : 0;
+  const sps = elapsed > 1 ? (d.timesteps / elapsed) : 0;
+
+  const metrics = [
+    ['timesteps', num(d.timesteps), 'episodios', num(d.episodes)],
+    ['steps/s', sps.toFixed(0), 'n_envs', d.n_envs || 1],
+    ['max x ep.', num(d.max_x_this_ep), 'max x hist.', num(Math.floor(d.max_x_historical))],
+    ['reward avg100', fixed(d.reward_avg_100, 1), 'último reward', fixed(d.last_episode_reward, 1)],
+    ['distancia avg100', num(Math.floor(d.distance_avg_100)), 'clear rate', (d.clear_rate_100 * 100).toFixed(1) + '%'],
+    ['coins avg100', fixed(d.coins_avg_100, 1), 'behavior score', fixed(d.behavior_score, 1)],
+  ];
+
+  const grid = document.getElementById('metricsGrid');
+  grid.innerHTML = '';
+  for (const [k1, v1, k2, v2] of metrics) {
+    grid.appendChild(metricEl(k1, v1));
+    grid.appendChild(metricEl(k2, v2));
+  }
+}
+
+function metricEl(key, val) {
+  const div = document.createElement('div');
+  div.className = 'metric';
+  const valStr = String(val);
+  let cls = 'metric-val';
+  if (valStr.startsWith('-')) cls += ' negative';
+  div.innerHTML = `<span class="metric-key">${key}</span><span class="${cls}">${val}</span>`;
+  return div;
+}
+
+function updateConfig(d) {
+  const el = document.getElementById('configInfo');
+  el.innerHTML = [
+    `<div class="config-item"><b>env:</b> ${d.env_id || '—'}</div>`,
+    `<div class="config-item"><b>device:</b> ${d.device || '—'}</div>`,
+    `<div class="config-item"><b>total steps:</b> ${num(d.total_timesteps)}</div>`,
+    `<div class="config-item"><b>lr:</b> ${d.learning_rate || '—'}</div>`,
+    `<div class="config-item"><b>n_envs:</b> ${d.n_envs || 1}</div>`,
+    `<div class="config-item"><b>último flag:</b> ${d.last_clear ? 'sí' : 'no'}</div>`,
+  ].join('');
+}
+
+// --- Trajectory canvas ---
+function drawTrajectories(trajs, current, xMax) {
+  const canvas = document.getElementById('trajCanvas');
+  const rect = canvas.parentElement.getBoundingClientRect();
+  canvas.width = rect.width - 24;
+  canvas.height = rect.height - 40;
+  const ctx = canvas.getContext('2d');
+  const W = canvas.width, H = canvas.height;
+
+  ctx.fillStyle = '#0d1117';
+  ctx.fillRect(0, 0, W, H);
+
+  // Grid
+  ctx.strokeStyle = '#21262d';
+  ctx.lineWidth = 1;
+  for (let i = 0; i <= 4; i++) {
+    const gx = (i / 4) * W;
+    ctx.beginPath(); ctx.moveTo(gx, 0); ctx.lineTo(gx, H); ctx.stroke();
+    // Zone label
+    ctx.fillStyle = '#30363d';
+    ctx.font = '10px monospace';
+    ctx.fillText(`${Math.floor((i / 4) * xMax)}`, gx + 2, H - 4);
+  }
+
+  const scaleX = W / xMax;
+  const yMin = 0, yMax = 255;
+  const scaleY = H / (yMax - yMin);
+
+  // Past trajectories (faded)
+  const total = trajs.length;
+  for (let t = 0; t < total; t++) {
+    const traj = trajs[t];
+    if (traj.length < 2) continue;
+    const age = total - t;
+    const alpha = Math.max(0.05, 0.4 - age * 0.008);
+    const hue = (t * 37) % 360;
+    ctx.strokeStyle = `hsla(${hue}, 70%, 55%, ${alpha})`;
+    ctx.lineWidth = 1;
+    ctx.beginPath();
+    ctx.moveTo(traj[0][0] * scaleX, H - (traj[0][1] - yMin) * scaleY);
+    for (let i = 1; i < traj.length; i++) {
+      ctx.lineTo(traj[i][0] * scaleX, H - (traj[i][1] - yMin) * scaleY);
+    }
+    ctx.stroke();
+  }
+
+  // Current trajectory (bright)
+  if (current && current.length > 1) {
+    ctx.strokeStyle = '#58a6ff';
+    ctx.lineWidth = 2;
+    ctx.shadowColor = '#58a6ff';
+    ctx.shadowBlur = 4;
+    ctx.beginPath();
+    ctx.moveTo(current[0][0] * scaleX, H - (current[0][1] - yMin) * scaleY);
+    for (let i = 1; i < current.length; i++) {
+      ctx.lineTo(current[i][0] * scaleX, H - (current[i][1] - yMin) * scaleY);
+    }
+    ctx.stroke();
+    ctx.shadowBlur = 0;
+
+    // Current position dot
+    const last = current[current.length - 1];
+    ctx.fillStyle = '#f0883e';
+    ctx.beginPath();
+    ctx.arc(last[0] * scaleX, H - (last[1] - yMin) * scaleY, 4, 0, Math.PI * 2);
+    ctx.fill();
+  }
+}
+
+// --- Helpers ---
+function num(n) { return n != null ? n.toLocaleString('es-AR') : '—'; }
+function fixed(n, d) { return n != null ? n.toFixed(d) : '—'; }
+
+// --- Init ---
+connectMetrics();
+connectFrame();
+connectTrajectories();
+</script>
+</body>
+</html>

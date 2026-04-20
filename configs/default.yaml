@@ -1,0 +1,84 @@
+env:
+  env_id: SuperMarioBros-1-2-v0
+  frame_stack: 4
+  resize_shape: 84
+  skip_frames: 4
+
+ppo:
+  policy: CnnPolicy
+  learning_rate: 0.00025
+  n_steps: 512
+  batch_size: 64
+  n_epochs: 10
+  gamma: 0.99
+  gae_lambda: 0.95
+  clip_range: 0.2
+  ent_coef: 0.02
+  vf_coef: 0.5
+  max_grad_norm: 0.5
+  use_linear_lr_schedule: true
+
+reward:
+  forward_reward_coef: 2.0
+  backward_reward_coef: 0.5
+  coin_reward: 5.0
+  score_reward_coef: 0.025
+  vertical_explore_reward: 0.5
+  time_penalty_coef: -0.001
+  time_remaining_bonus_coef: 0.1
+  flag_bonus: 15.0
+
+  death_by_enemy_penalty: -15.0
+  death_by_time_penalty: -8.0
+
+  stuck_penalty_base: -0.2
+  stuck_threshold_base: 30
+
+  enable_cyclic_detection: true
+  cyclic_action_penalty: -0.2
+  cyclic_window: 40
+  cyclic_min_repeats: 3
+  cyclic_progress_threshold: 8
+
+  enable_death_map: true
+  death_bucket_size: 32
+  death_bucket_coef: -0.5
+  death_bucket_cap: -10.0
+
+  enable_excessive_left: true
+  excessive_left_threshold_frames: 30
+  excessive_left_pixels: 40
+  excessive_left_penalty: -0.05
+
+  enable_micro_movement: true
+  micro_movement_window: 60
+  micro_movement_span_threshold: 20
+  micro_movement_net_threshold: 10
+  micro_movement_penalty: -0.3
+
+  enable_wall_stuck: true
+  wall_stuck_frames: 15
+  wall_stuck_penalty: -0.1
+
+  enable_records: true
+  record_distance_bonus: 5.0
+  record_time_bonus: 10.0
+
+  no_progress_limit: 200
+
+training:
+  total_timesteps: 5000000
+  checkpoint_freq: 50000
+  early_stop_consecutive: 5
+  seed: 42
+  reset_memory: false
+  n_envs: 4
+
+paths:
+  log_dir: logs
+  checkpoint_dir: checkpoints
+  model_save_path: models_saved/mario_ppo
+  video_dir: videos
+  death_map_path: checkpoints/death_map.json
+  best_distance_path: checkpoints/best_distance.json
+  best_time_path: checkpoints/best_clear_time.json

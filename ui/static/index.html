@@ -1,0 +1,98 @@
+<!doctype html>
+<html lang="es">
+<head>
+<meta charset="utf-8">
+<title>Mario RL Dashboard</title>
+<link rel="stylesheet" href="/static/styles.css">
+<!-- Orden importa: app.js registra Alpine.data ANTES de que cargue Alpine (con defer). -->
+<script src="/static/app.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.1/dist/chart.umd.min.js"></script>
+<script defer src="https://unpkg.com/alpinejs@3.13.5/dist/cdn.min.js"></script>
+</head>
+<body x-data="dashboard" x-init="init()">
+
+<header>
+  <h1>Mario RL — Dashboard</h1>
+  <div class="mode" :class="'mode-' + status.mode" x-text="'modo: ' + status.mode"></div>
+</header>
+
+<main>
+  <section class="panel controls">
+    <h2>Control</h2>
+    <div class="row">
+      <label>Config</label>
+      <input type="text" x-model="startReq.config_path" />
+    </div>
+    <div class="row">
+      <label>Resume</label>
+      <input type="text" x-model="startReq.resume_path" placeholder="opcional — ruta del .zip" />
+    </div>
+    <div class="btn-row">
+      <button @click="trainStart()">Iniciar</button>
+      <button @click="trainPause()">Pausar</button>
+      <button @click="trainResume()">Reanudar</button>
+      <button @click="trainStop()">Detener</button>
+    </div>
+    <hr>
+    <div class="row">
+      <label>Modelo</label>
+      <input type="text" x-model="modelPath" />
+    </div>
+    <div class="btn-row">
+      <button @click="modelSave()">Guardar</button>
+      <button @click="modelLoad()">Cargar</button>
+    </div>
+    <p class="log" x-text="log"></p>
+  </section>
+
+  <section class="panel viewer">
+    <h2>Juego en vivo</h2>
+    <img id="live-frame" alt="frame" />
+    <div class="progress">
+      <div class="progress-bar" :style="{width: (status.current_x / xMax * 100) + '%'}"></div>
+      <span x-text="'x = ' + status.current_x + ' / ' + xMax + '  (' + ((status.current_x/xMax)*100).toFixed(1) + '%)'"></span>
+    </div>
+    <div class="metrics-inline">
+      <span>timesteps: <b x-text="status.timesteps"></b></span>
+      <span>episodios: <b x-text="status.episodes"></b></span>
+      <span>reward100: <b x-text="status.reward_avg_100.toFixed(2)"></b></span>
+      <span>clear100: <b x-text="(status.clear_rate_100*100).toFixed(1) + '%'"></b></span>
+      <span>dist100: <b x-text="status.distance_avg_100.toFixed(0)"></b></span>
+      <span>behavior: <b x-text="status.behavior_score.toFixed(2)"></b></span>
+    </div>
+  </section>
+
+  <section class="panel reward">
+    <h2>Reward config (editable en caliente)</h2>
+    <template x-for="field in rewardFields" :key="field.key">
+      <div class="row">
+        <label x-text="field.key"></label>
+        <template x-if="field.type === 'bool'">
+          <input type="checkbox" x-model="rewardEdit[field.key]" />
+        </template>
+        <template x-if="field.type !== 'bool'">
+          <input :type="field.type" x-model.number="rewardEdit[field.key]" step="0.01" />
+        </template>
+      </div>
+    </template>
+    <div class="btn-row">
+      <button @click="applyReward()">Aplicar en caliente</button>
+      <button @click="refreshConfig()">Recargar del servidor</button>
+    </div>
+  </section>
+
+  <section class="panel map">
+    <h2>Mapa del nivel — trayectorias acumuladas</h2>
+    <canvas id="level-canvas" width="1200" height="240"></canvas>
+    <p class="hint">Cada trayectoria es un color; las más viejas aparecen con alpha menor.</p>
+  </section>
+
+  <section class="panel charts">
+    <h2>Métricas</h2>
+    <canvas id="chart-reward"></canvas>
+    <canvas id="chart-clear"></canvas>
+  </section>
+</main>
+
+</body>
+</html>

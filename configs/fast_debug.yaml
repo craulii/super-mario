@@ -1,0 +1,57 @@
+env:
+  env_id: SuperMarioBros-1-2-v0
+  frame_stack: 4
+  resize_shape: 84
+  skip_frames: 4
+
+ppo:
+  policy: CnnPolicy
+  learning_rate: 0.00025
+  n_steps: 256
+  batch_size: 64
+  n_epochs: 4
+  gamma: 0.99
+  gae_lambda: 0.95
+  clip_range: 0.2
+  ent_coef: 0.02
+  vf_coef: 0.5
+  max_grad_norm: 0.5
+  use_linear_lr_schedule: false
+
+reward:
+  forward_reward_coef: 1.0
+  backward_reward_coef: 0.5
+  coin_reward: 5.0
+  score_reward_coef: 0.025
+  vertical_explore_reward: 0.5
+  time_penalty_coef: -0.001
+  time_remaining_bonus_coef: 0.1
+  flag_bonus: 15.0
+  death_by_enemy_penalty: -15.0
+  death_by_time_penalty: -8.0
+  stuck_penalty_base: -0.5
+  stuck_threshold_base: 30
+  enable_cyclic_detection: false
+  enable_death_map: false
+  enable_excessive_left: false
+  enable_micro_movement: false
+  enable_wall_stuck: false
+  enable_records: false
+  no_progress_limit: 100
+
+training:
+  total_timesteps: 50000
+  checkpoint_freq: 10000
+  early_stop_consecutive: 3
+  seed: 0
+  reset_memory: true
+  n_envs: 2
+
+paths:
+  log_dir: logs
+  checkpoint_dir: checkpoints
+  model_save_path: models_saved/mario_ppo_debug
+  video_dir: videos
+  death_map_path: checkpoints/death_map.json
+  best_distance_path: checkpoints/best_distance.json
+  best_time_path: checkpoints/best_clear_time.json
